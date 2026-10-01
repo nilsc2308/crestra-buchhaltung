@@ -14,7 +14,7 @@
 <meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0c0f16" media="(prefers-color-scheme: dark)">
 <link rel="preload" href="fonts/hanken-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=2">
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -36,6 +36,7 @@
   <a href="#umsaetze" data-tab="umsaetze">Umsätze</a>
   <a href="#rechnungen" data-tab="rechnungen">Rechnungen</a>
   <a href="#belege" data-tab="belege">Belege</a>
+  <a href="#vertrieb" data-tab="vertrieb">Vertrieb</a>
   <a href="#auswertung" data-tab="auswertung">Auswertung</a>
   <a href="#einstellungen" data-tab="einstellungen">Einstellungen</a>
  </nav>
@@ -58,7 +59,7 @@
 <input id="fileCsv" type="file" accept=".csv,text/csv,text/plain" hidden>
 
 <script type="module" src="db.js"></script>
-<script type="module" src="app.js?v=7"></script>
+<script type="module" src="app.js?v=9"></script>
 <script>if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 </body>
 </html>

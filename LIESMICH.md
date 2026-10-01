@@ -12,11 +12,13 @@ Anmeldung: dieselbe wie im Kundenboard. Wer dort angemeldet ist, ist es hier aut
 |---|---|
 | Überblick | Kontostand, Einnahmen/Ausgaben/Gewinn des Jahres, Kleinunternehmer-Grenzen (25.000 € / 100.000 €), offene Rechnungen, Aufgaben |
 | Umsätze | Bankumsätze (automatisch oder per CSV), Kategorien mit Vorschlägen und Regeln, Belege anhängen, Bar-/Privatausgaben eintragen |
-| Rechnungen | Rechnungen mit § 19-Hinweis, fortlaufende Nummern RE-JJJJ-NNNN, Festschreiben (danach nicht mehr änderbar, GoBD), Storno, PDF über „Drucken“; Monatsrechnungen für alle Board-Kunden mit Status „gewonnen“ und Monatspreis |
+| Rechnungen | Rechnungen mit § 19-Hinweis, fortlaufende Nummern RE-JJJJ-NNNN, Festschreiben (danach nicht mehr änderbar, GoBD), Storno, PDF über „Drucken“; keine Monatsrechnungen (Kunden haben Verträge) |
+| Vertrieb | Freie Vertriebler (Name, Adresse, Steuernummer, IBAN, Kleinunternehmer ja/nein, Standard-Provision 250 €), Provision je Abschluss, Gutschrift GS-JJJJ-NNNN zum Drucken; die Tide-Überweisung (Name + Betrag) wird automatisch als ausgezahlt erkannt und als „Fremdleistungen & Provisionen“ verbucht |
 | Belege | Quittungen fotografieren oder PDFs hochladen, Umsätzen zuordnen (privater Speicher, nur für dich lesbar) |
 | Auswertung | Einnahmen-Überschuss-Rechnung je Jahr (Bewirtung zu 70 %), CSV für Steuerberater, Druck |
 | Einstellungen | Firmendaten, Bankverbindung, Regeln, Sicherung (JSON) |
 
+Kategorien werden automatisch gesetzt (Stichwörter, Board-Kundennamen, eigene Überweisungen = Privateinlage, Vertriebler = Provisionen); von Hand geänderte Kategorien bleiben.
 Zahlungseingänge, deren Verwendungszweck die Rechnungsnummer enthält und deren Betrag passt, werden automatisch der Rechnung zugeordnet und die Rechnung als bezahlt markiert.
 
 ## Tide: Umsätze per CSV (Stand 1.10.2026)

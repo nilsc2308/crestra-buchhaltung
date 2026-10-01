@@ -87,7 +87,7 @@ const RATEN = [
 ];
 
 /* ================= Zustand ================= */
-const S = { buchungen: [], rechnungen: [], belege: [], sites: [], einst: {}, bank: {}, geladen: new Set() };
+const S = { buchungen: [], rechnungen: [], belege: [], sites: [], vertriebler: [], provisionen: [], einst: {}, bank: {}, geladen: new Set() };
 let db, SB, UID;
 const F = { suche: "", filter: "alle", jahr: new Date().getFullYear(), rFilter: "alle", bFilter: "offen" };
 
@@ -109,6 +109,7 @@ function raten(b) {
     return "";
   }
   const txt = `${b.gegenpartei || ""} ${b.zweck || ""}`;
+  if (S.vertriebler.some((v) => { const n = norm(v.name); return n.length > 4 && norm(txt).includes(n); })) return "fremd";
   for (const [re, k] of RATEN) if (re.test(txt)) return k;
   return "";
 }
@@ -170,7 +171,7 @@ async function speichern(pfad, patch, meldung) {
 }
 
 /* ================= Router ================= */
-const TITEL = { uebersicht: "Überblick", umsaetze: "Umsätze", rechnungen: "Rechnungen", rechnung: "Rechnung", belege: "Belege", auswertung: "Auswertung", einstellungen: "Einstellungen", mehr: "Mehr" };
+const TITEL = { uebersicht: "Überblick", umsaetze: "Umsätze", rechnungen: "Rechnungen", rechnung: "Rechnung", belege: "Belege", auswertung: "Auswertung", einstellungen: "Einstellungen", mehr: "Mehr", vertrieb: "Vertrieb", gutschrift: "Gutschrift" };
 const teil = () => { const [n, a] = (location.hash.slice(1) || "uebersicht").split("/"); return [TITEL[n] ? n : "uebersicht", a ? decodeURIComponent(a) : ""]; };
 let renderWartet = false;
 function render() {
@@ -179,9 +180,10 @@ function render() {
   if (a && view.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.type !== "file" && a.type !== "checkbox") { renderWartet = true; return; }
   renderWartet = false;
   const [name, arg] = teil();
-  $$("[data-tab]").forEach((x) => x.classList.toggle("on", x.dataset.tab === name || (name === "rechnung" && x.dataset.tab === "rechnungen") || (["auswertung", "einstellungen"].includes(name) && x.dataset.tab === "mehr")));
+  $$("[data-tab]").forEach((x) => x.classList.toggle("on", x.dataset.tab === name || (name === "rechnung" && x.dataset.tab === "rechnungen") || (name === "gutschrift" && x.dataset.tab === "vertrieb") || (["auswertung", "einstellungen", "vertrieb", "gutschrift"].includes(name) && x.dataset.tab === "mehr")));
   document.title = `${TITEL[name]} · crestra Buchhaltung`;
   if (name === "rechnung") return renderRechnung(arg);
+  if (name === "gutschrift") { ED = null; return renderGutschrift(arg); }
   ED = null;
   view.innerHTML = VIEWS[name]();
   VIEWS[name + "Mount"]?.(view);
@@ -190,19 +192,15 @@ document.addEventListener("focusout", () => setTimeout(() => { if (renderWartet)
 addEventListener("hashchange", () => { ED = null; render(); scrollTo(0, 0); });
 
 /* ================= Überblick ================= */
-function monatsKunden(ym = heute().slice(0, 7)) {
-  return S.sites.filter((s) => s.stage === "gewonnen" && +s.preisMonat > 0)
-    .filter((s) => !S.rechnungen.some((r) => r.kunde?.siteId === s.id && !["storniert", "storno"].includes(r.status) && (r.leistungVon || r.datum || "").slice(0, 7) === ym));
-}
 function aufgaben() {
   const v = sichtbar(), out = [];
   const ohneKat = v.filter((b) => !katVon(b)).length;
   const ohneBeleg = v.filter(brauchtBeleg).length;
   const ueber = S.rechnungen.filter(ueberfaellig).length;
-  const mk = monatsKunden().length;
+  const prov = S.provisionen.filter((x) => x.status !== "bezahlt").length;
   const offeneBelege = S.belege.filter((x) => !x.buchung).length;
   if (!firmaKomplett()) out.push(["#einstellungen", "Firmendaten für Rechnungen ergänzen", "!"]);
-  if (mk) out.push(["#rechnungen", `Monatsrechnungen ${MONATE[new Date().getMonth()]} fällig`, mk]);
+  if (prov) out.push(["#vertrieb", "Provisionen noch nicht ausgezahlt", prov]);
   if (ueber) out.push(["#rechnungen/ueberfaellig", "Rechnungen überfällig", ueber]);
   if (ohneKat) out.push(["#umsaetze/ohne-kategorie", "Umsätze ohne Kategorie", ohneKat]);
   if (ohneBeleg) out.push(["#umsaetze/ohne-beleg", "Ausgaben ohne Beleg", ohneBeleg]);
@@ -278,7 +276,6 @@ function zeile(b) {
     </div>
   </div>`;
 }
-const vorschlaege = () => sichtbar().filter((b) => !katVon(b) && raten(b));
 VIEWS.umsaetze = () => {
   const [, arg] = teil(); if (arg) F.filter = arg;
   const q = F.suche.toLowerCase();
@@ -298,7 +295,6 @@ VIEWS.umsaetze = () => {
       ${S.bank.konten?.length ? `<button class="btn" data-act="abruf">↻ Bank abrufen</button>` : ""}
       <button class="btn" data-act="csv">CSV importieren</button>
       <button class="btn btn--primary" data-act="neu-buchung">+ Eintragen</button>
-      ${vorschlaege().length ? `<button class="btn" data-act="alle-vorschlaege">✓ Alle ${vorschlaege().length} Vorschläge übernehmen</button>` : ""}
     </div></div>
   <div class="toolbar">
     <input class="in" type="search" id="suche" placeholder="Suchen: Name, Zweck, Betrag …" value="${esc(F.suche)}">
@@ -342,7 +338,7 @@ function buchungSheet(id) {
     </div>`, (box) => {
     $("#bFrei", box)?.addEventListener("change", async (e) => { if (!e.target.value) return; await speichern("belege/" + e.target.value, { buchung: id }, "Beleg zugeordnet"); buchungSheet(id); });
     $("#bSave", box).onclick = async () => {
-      const kat = $("#bKat", box).value, patch = { kategorie: kat || null, notiz: $("#bNotiz", box).value.trim() };
+      const kat = $("#bKat", box).value, patch = { kategorie: kat || null, kategorieAuto: false, kategorieGeprueft: true, notiz: $("#bNotiz", box).value.trim() };
       if ($("#bOhne", box)) patch.ohneBeleg = $("#bOhne", box).checked;
       const reSel = $("#bRe", box)?.value;
       if ($("#bRe", box)) {
@@ -585,27 +581,19 @@ function kundeAusSite(s) {
   const adr = String(s.adresse || "").split(/\n|,\s*(?=\d{5})/).map((x) => x.trim()).filter(Boolean);
   return { siteId: s.id, name: s.name || "", zusatz: s.inhaber ? (s.inhaber + "").trim() : "", adresse: adr.join("\n"), email: s.email || "" };
 }
-async function neueRechnung(site, ym) {
+async function neueRechnung(site) {
   const id = newId(), e = einst();
-  const r = { status: "entwurf", datum: heute(), zahlungsziel: +(e.zahlungsziel ?? 14), kunde: site ? kundeAusSite(site) : { name: "", adresse: "" }, positionen: [], erstellt: new Date().toISOString() };
-  if (site && ym) {
-    r.leistungVon = ym + "-01"; r.leistungBis = letzterTag(ym);
-    r.positionen.push({ text: `Website-Betreuung und Hosting ${monatName(ym)}`, menge: 1, preis: Math.round(+site.preisMonat * 100) });
-  } else { r.leistungVon = heute(); r.positionen.push({ text: "", menge: 1, preis: 0 }); }
+  const r = { status: "entwurf", datum: heute(), zahlungsziel: +(e.zahlungsziel ?? 14), kunde: site ? kundeAusSite(site) : { name: "", adresse: "" }, positionen: [{ text: "", menge: 1, preis: 0 }], leistungVon: heute(), erstellt: new Date().toISOString() };
   await db.doc("rechnungen/" + id).set(r);
   return id;
 }
 VIEWS.rechnungen = () => {
   const [, arg] = teil(); if (arg) F.rFilter = arg;
-  const ym = heute().slice(0, 7), mk = monatsKunden(ym);
   let rows = [...S.rechnungen].sort((a, b) => (b.nummer ? 1 : 2) - (a.nummer ? 1 : 2) || (b.datum || "").localeCompare(a.datum || "") || (b.nummer || "").localeCompare(a.nummer || ""));
   rows = rows.filter((r) => ({ alle: true, entwurf: r.status === "entwurf", offen: r.status === "offen", ueberfaellig: ueberfaellig(r), bezahlt: r.status === "bezahlt" }[F.rFilter] ?? true));
   rows.sort((a, b) => (a.status === "entwurf" ? 0 : 1) - (b.status === "entwurf" ? 0 : 1));
   const cnt = (f) => S.rechnungen.filter(f).length;
   return `<div class="head"><h1>Rechnungen</h1><div class="btns"><button class="btn btn--primary" data-act="neu-rechnung">+ Neue Rechnung</button></div></div>
-    ${mk.length ? `<div class="card" style="margin-bottom:14px"><h2>Monatsrechnungen ${monatName(ym)}</h2><p class="muted small" style="margin-top:-4px">Kunden im Board mit Status „gewonnen“ und Monatspreis, die für diesen Monat noch keine Rechnung haben.</p>
-      <div class="list" style="box-shadow:none;border:1px solid var(--line)">${mk.map((s) => `<div class="it" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><div class="t"><b>${esc(s.name)}</b><span>${esc(s.inhaber || "")} ${s.email ? "· " + esc(s.email) : ""}</span></div><div class="m">${eur(Math.round(+s.preisMonat * 100))}</div></div>`).join("")}</div>
-      <div class="btns" style="margin-top:12px"><button class="btn btn--primary" data-act="monatsrechnungen">${mk.length} ${mk.length === 1 ? "Entwurf" : "Entwürfe"} erstellen</button></div></div>` : ""}
     <div class="chips" style="margin-bottom:12px">${[["alle", "Alle"], ["entwurf", `Entwürfe (${cnt((r) => r.status === "entwurf")})`], ["offen", `Offen (${cnt((r) => r.status === "offen")})`], ["ueberfaellig", `Überfällig (${cnt(ueberfaellig)})`], ["bezahlt", "Bezahlt"]].map(([k, t]) => `<button class="chip ${F.rFilter === k ? "on" : ""}" data-rfilter="${k}">${t}</button>`).join("")}</div>
     <div class="list">${rows.length ? rows.map((r) => `<a class="it" href="#rechnung/${r.id}" style="color:inherit;text-decoration:none"><div class="d">${fmtD(r.datum)}</div><div class="t"><b>${esc(r.kunde?.name || "(ohne Kunde)")}</b><span>${esc(r.nummer || "Entwurf")}${r.status === "offen" ? " · fällig " + fmtD(faelligAm(r)) : r.bezahltAm ? " · bezahlt " + fmtD(r.bezahltAm) : ""}</span></div><div class="m">${eur(summe(r))}</div><div class="x">${statusBadge(r)}</div></a>`).join("") : `<div class="empty">Keine Rechnungen${F.rFilter !== "alle" ? " in dieser Ansicht" : ""}.</div>`}</div>`;
 };
@@ -726,8 +714,22 @@ async function stornieren(id) {
   location.hash = "#rechnung/" + sid; toast("Stornorechnung " + nummer + " erstellt");
 }
 // Zahlungseingänge mit Rechnungsnummer im Verwendungszweck automatisch zuordnen
-const zugeordnet = new Set();
+const zugeordnet = new Set(), autoKat = new Set();
 async function abgleichen() {
+  // Kategorie-Vorschläge automatisch übernehmen (änderbar wie jede andere Kategorie)
+  const auto = sichtbar().filter((b) => !b.kategorie && !b.kategorieGeprueft && !autoKat.has(b.id) && !regel(b) && raten(b));
+  auto.forEach((b) => autoKat.add(b.id));
+  if (auto.length) await Promise.all(auto.map((b) => db.doc("buchungen/" + b.id).update({ kategorie: raten(b), kategorieAuto: true }).catch(() => autoKat.delete(b.id))));
+  // Auszahlungen an Vertriebler der offenen Provision zuordnen
+  for (const b of sichtbar()) {
+    if (b.betrag >= 0 || b.provision || zugeordnet.has(b.id)) continue;
+    const txt = norm(`${b.zweck} ${b.gegenpartei}`);
+    const p = S.provisionen.find((x) => x.status !== "bezahlt" && provBrutto(x) === -b.betrag && ((norm(vName(x.vertriebler)).length > 4 && txt.includes(norm(vName(x.vertriebler)))) || (x.nummer && txt.includes(norm(x.nummer)))));
+    if (!p) continue;
+    zugeordnet.add(b.id);
+    await speichern("buchungen/" + b.id, { provision: p.id, kategorie: "fremd" });
+    await speichern("provisionen/" + p.id, { status: "bezahlt", bezahltAm: b.datum, buchung: b.id }, `Provision an ${vName(p.vertriebler)} ausgezahlt`);
+  }
   for (const b of sichtbar()) {
     if (b.betrag <= 0 || b.rechnung || zugeordnet.has(b.id)) continue;
     const txt = norm(`${b.zweck} ${b.gegenpartei}`);
@@ -739,6 +741,151 @@ async function abgleichen() {
   }
 }
 
+/* ================= Vertrieb: freie Vertriebler und Provisionen ================= */
+// Provision = netto; ist der Vertriebler kein Kleinunternehmer, kommen 19 % USt dazu.
+// crestra ist selbst Kleinunternehmer und kann diese USt nicht zurückholen → Ausgabe = brutto.
+const vName = (id) => S.vertriebler.find((v) => v.id === id)?.name || "";
+const provUst = (p) => p.ust || 0;
+const provBrutto = (p) => (p.netto || 0) + provUst(p);
+const STANDARD_PROVISION = 25000;
+function naechsteGutschrift(jahr) {
+  const re = new RegExp(`^GS-${jahr}-(\\d+)$`);
+  const max = S.provisionen.reduce((m, p) => { const x = (p.nummer || "").match(re); return x ? Math.max(m, +x[1]) : m; }, 0);
+  return `GS-${jahr}-${String(max + 1).padStart(4, "0")}`;
+}
+VIEWS.vertrieb = () => {
+  const j = new Date().getFullYear();
+  const offen = S.provisionen.filter((p) => p.status !== "bezahlt");
+  const gezahlt = S.provisionen.filter((p) => p.status === "bezahlt" && (p.bezahltAm || "").startsWith(j));
+  const abschl = S.provisionen.filter((p) => (p.datum || "").startsWith(j)).length;
+  const prov = [...S.provisionen].sort((a, b) => (a.status === "bezahlt" ? 1 : 0) - (b.status === "bezahlt" ? 1 : 0) || (b.datum || "").localeCompare(a.datum || ""));
+  return `<div class="head"><h1>Vertrieb</h1><div class="btns"><button class="btn" data-act="vertriebler-neu">+ Vertriebler</button><button class="btn btn--primary" data-act="provision-neu" ${S.vertriebler.length ? "" : "disabled"}>+ Provision</button></div></div>
+  <div class="grid g3 stats" style="margin-bottom:14px">
+    <div class="card stat"><span>Offen</span><strong>${eur(offen.reduce((s, p) => s + provBrutto(p), 0))}</strong><span>${offen.length} Provision${offen.length === 1 ? "" : "en"}</span></div>
+    <div class="card stat"><span>Ausgezahlt ${j}</span><strong>${eur(gezahlt.reduce((s, p) => s + provBrutto(p), 0))}</strong></div>
+    <div class="card stat"><span>Abschlüsse ${j}</span><strong>${abschl}</strong></div>
+  </div>
+  <div class="grid g2" style="align-items:start">
+    <section><h2>Vertriebler</h2><div class="list">${S.vertriebler.length ? [...S.vertriebler].sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((v) => {
+      const ps = S.provisionen.filter((p) => p.vertriebler === v.id), o = ps.filter((p) => p.status !== "bezahlt").reduce((s, p) => s + provBrutto(p), 0);
+      return `<button class="it" data-vertriebler="${esc(v.id)}" style="width:100%;border-left:0;border-right:0;border-bottom:0;background:none;text-align:left;font:inherit;color:inherit;grid-template-columns:minmax(0,1fr) auto"><span class="t"><b>${esc(v.name)}</b><span>${ps.length} Abschluss${ps.length === 1 ? "" : "e"} · ${v.kleinunternehmer === false ? "mit USt" : "Kleinunternehmer"}${v.steuernummer ? "" : " · Steuernummer fehlt"}</span></span><span class="m">${o ? eur(o) + " offen" : ""}</span></button>`;
+    }).join("") : `<div class="empty">Noch keine Vertriebler. Leg sie mit Name, Adresse, Steuernummer und IBAN an.</div>`}</div></section>
+    <section><h2>Provisionen</h2><div class="list">${prov.length ? prov.map((p) => `<button class="it" data-provision="${esc(p.id)}" style="width:100%;border-left:0;border-right:0;border-bottom:0;background:none;text-align:left;font:inherit;color:inherit"><span class="d">${fmtD(p.datum)}</span><span class="t"><b>${esc(p.kunde?.name || "Kunde")}</b><span>${esc(vName(p.vertriebler))}${p.nummer ? " · " + esc(p.nummer) : ""}</span></span><span class="m">${eur(provBrutto(p))}</span><span class="x">${p.status === "bezahlt" ? `<span class="badge green">ausgezahlt</span>` : `<span class="badge amber">offen</span>`}</span></button>`).join("") : `<div class="empty">Noch keine Provisionen.</div>`}</div></section>
+  </div>
+  <div class="info" style="margin-top:14px">So läuft es: Der Kunde unterschreibt, du trägst die Provision ein. Entweder schreibt der Vertriebler dir eine Rechnung (als Beleg hochladen) oder du erstellst hier eine <b>Gutschrift</b> und schickst sie ihm. Die Überweisung aus Tide wird beim nächsten Import automatisch erkannt (Name des Vertrieblers + Betrag) und als „Fremdleistungen & Provisionen“ verbucht.</div>`;
+};
+function vertrieblerSheet(id) {
+  const v = (id && S.vertriebler.find((x) => x.id === id)) || { kleinunternehmer: true, provision: STANDARD_PROVISION };
+  const anz = id ? S.provisionen.filter((p) => p.vertriebler === id).length : 0;
+  const f = (k, t, ph = "", typ = "text") => `<label class="f">${t}<input type="${typ}" id="v_${k}" value="${esc(v[k] ?? "")}" placeholder="${esc(ph)}"></label>`;
+  sheet(`<h2>${id ? esc(v.name) : "Neuer Vertriebler"}</h2>
+    <div class="grid" style="gap:12px">
+      ${f("name", "Name", "Vor- und Nachname")}
+      <label class="f">Anschrift<textarea id="v_adresse" rows="2" placeholder="Straße Nr.&#10;PLZ Ort">${esc(v.adresse || "")}</textarea></label>
+      <div class="row">${f("email", "E-Mail", "", "email")}${f("telefon", "Telefon", "", "tel")}</div>
+      <div class="row">${f("iban", "IBAN")}${f("steuernummer", "Steuernummer", "Pflicht für Gutschriften")}</div>
+      <div class="row"><label class="f">Provision je Abschluss (€)<input id="v_provision" inputmode="decimal" value="${eurPlain(v.provision ?? STANDARD_PROVISION)}"></label>
+      <label class="f">Umsatzsteuer<select id="v_ku"><option value="1"${v.kleinunternehmer !== false ? " selected" : ""}>Kleinunternehmer (keine USt)</option><option value="0"${v.kleinunternehmer === false ? " selected" : ""}>stellt 19 % USt in Rechnung</option></select></label></div>
+      <p class="small muted" style="margin:0">Wichtig: Stellt ein Vertriebler Umsatzsteuer in Rechnung, zahlst du 250 € + 47,50 € USt = 297,50 €. Als Kleinunternehmer bekommst du die USt nicht zurück.</p>
+      <label class="f">Notiz<textarea id="v_notiz" placeholder="z. B. Vertrag vom …, Gebiet">${esc(v.notiz || "")}</textarea></label>
+    </div>
+    <div class="btns" style="margin-top:16px;justify-content:space-between">${id && !anz ? `<button class="btn btn--danger" id="vDel">Löschen</button>` : "<span></span>"}<button class="btn btn--primary" id="vSave">Speichern</button></div>`, (box) => {
+    $("#vSave", box).onclick = async () => {
+      const name = $("#v_name", box).value.trim(); if (!name) return toast("Bitte einen Namen eintragen.");
+      const pr = parseEuro($("#v_provision", box).value);
+      const d = { name, adresse: $("#v_adresse", box).value.trim(), email: $("#v_email", box).value.trim(), telefon: $("#v_telefon", box).value.trim(), iban: $("#v_iban", box).value.replace(/\s/g, "").toUpperCase().replace(/(.{4})/g, "$1 ").trim(), steuernummer: $("#v_steuernummer", box).value.trim(), provision: isNaN(pr) ? STANDARD_PROVISION : pr, kleinunternehmer: $("#v_ku", box).value === "1", notiz: $("#v_notiz", box).value.trim() };
+      await speichern("vertriebler/" + (id || newId()), d, "Gespeichert"); closeSheet();
+    };
+    $("#vDel", box)?.addEventListener("click", async () => { if (confirm(`${v.name} löschen?`)) { await db.doc("vertriebler/" + id).delete(); closeSheet(); } });
+  });
+}
+function provisionSheet(id) {
+  const p = (id && S.provisionen.find((x) => x.id === id)) || { datum: heute(), vertriebler: S.vertriebler.length === 1 ? S.vertriebler[0].id : "" };
+  const fest = !!p.nummer, bez = p.buchung && S.buchungen.find((b) => b.id === p.buchung);
+  const sites = [...S.sites].sort((a, b) => (a.stage === "gewonnen" ? 0 : 1) - (b.stage === "gewonnen" ? 0 : 1) || (a.name || "").localeCompare(b.name || ""));
+  sheet(`<h2>${id ? "Provision" : "Neue Provision"}</h2>
+    ${fest ? `<div class="info" style="margin-bottom:12px">Gutschrift ${esc(p.nummer)} ist erstellt – Betrag und Vertriebler sind deshalb fest.</div>` : ""}
+    <div class="grid" style="gap:12px">
+      <label class="f">Vertriebler<select id="pV" ${fest ? "disabled" : ""}><option value="">– wählen –</option>${S.vertriebler.map((v) => `<option value="${esc(v.id)}"${v.id === p.vertriebler ? " selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label>
+      <label class="f">Kunde (aus dem Board)<select id="pK" ${fest ? "disabled" : ""}><option value="">– frei eingeben –</option>${sites.map((x) => `<option value="${esc(x.id)}"${p.kunde?.siteId === x.id ? " selected" : ""}>${esc(x.name)}${x.stage === "gewonnen" ? "" : " (" + esc(x.stage || "") + ")"}</option>`).join("")}</select></label>
+      <label class="f">Kundenname<input id="pKN" value="${esc(p.kunde?.name || "")}" ${fest ? "disabled" : ""}></label>
+      <div class="row"><label class="f">Vertrag unterschrieben am<input type="date" id="pD" value="${esc(p.datum || "")}" ${fest ? "disabled" : ""}></label><label class="f">Provision netto (€)<input id="pN" inputmode="decimal" value="${p.netto !== undefined ? eurPlain(p.netto) : ""}" ${fest ? "disabled" : ""}></label></div>
+      <p class="small muted" id="pInfo" style="margin:0"></p>
+      <label class="f">Notiz<input id="pNotiz" value="${esc(p.notiz || "")}"></label>
+    </div>
+    ${id ? `<hr class="sep"><div class="grid" style="gap:10px">
+      ${p.status === "bezahlt" ? `<p style="margin:0"><span class="badge green">ausgezahlt</span> am ${fmtD(p.bezahltAm)}${bez ? ` · <button class="linkish" data-buchung="${esc(bez.id)}">Überweisung ansehen</button>` : ""}</p><button class="btn btn--small" id="pOffen" style="justify-self:start">Doch nicht ausgezahlt</button>`
+        : `<div class="row"><label class="f">Ausgezahlt am<input type="date" id="pBez" value="${heute()}"></label><button class="btn" id="pBezahlt">Als ausgezahlt markieren</button></div><p class="small muted" style="margin:0">Passiert automatisch, sobald die Überweisung aus Tide importiert ist.</p>`}
+      <div class="btns"><a class="btn" href="#gutschrift/${esc(id)}" data-close>${fest ? "Gutschrift ansehen" : "Gutschrift erstellen …"}</a></div></div>` : ""}
+    <div class="btns" style="margin-top:16px;justify-content:space-between">${id && !fest ? `<button class="btn btn--danger" id="pDel">Löschen</button>` : "<span></span>"}<button class="btn btn--primary" id="pSave">Speichern</button></div>`, (box) => {
+    const vSel = $("#pV", box), nIn = $("#pN", box);
+    const info = () => {
+      const v = S.vertriebler.find((x) => x.id === vSel.value);
+      if (!fest && v && !nIn.value) nIn.value = eurPlain(v.provision ?? STANDARD_PROVISION);
+      const netto = parseEuro(nIn.value), n = netto;
+      $("#pInfo", box).textContent = !v ? "" : v.kleinunternehmer === false ? `+ 19 % USt ${eur(Math.round((netto || 0) * 0.19))} = Auszahlung ${eur(Math.round((netto || 0) * 1.19))}` : `Kleinunternehmer – Auszahlung ${eur(isNaN(n) ? 0 : n)}`;
+    };
+    vSel.onchange = () => { if (!fest) nIn.value = ""; info(); }; nIn.oninput = info; info();
+    $("#pK", box).onchange = (e) => { const x = S.sites.find((y) => y.id === e.target.value); if (x) $("#pKN", box).value = x.name || ""; };
+    $("#pSave", box).onclick = async () => {
+      if (fest) { await speichern("provisionen/" + id, { notiz: $("#pNotiz", box).value.trim() }, "Gespeichert"); return closeSheet(); }
+      const v = S.vertriebler.find((x) => x.id === vSel.value), netto = parseEuro(nIn.value);
+      if (!v || isNaN(netto) || !netto || !$("#pKN", box).value.trim()) return toast("Bitte Vertriebler, Kunde und Betrag angeben.");
+      const d = { vertriebler: v.id, kunde: { siteId: $("#pK", box).value || null, name: $("#pKN", box).value.trim() }, datum: $("#pD", box).value || heute(), netto, ust: v.kleinunternehmer === false ? Math.round(netto * 0.19) : 0, notiz: $("#pNotiz", box).value.trim() };
+      if (!id) { d.status = "offen"; d.erstellt = new Date().toISOString(); }
+      await speichern("provisionen/" + (id || newId()), d, "Gespeichert"); closeSheet();
+    };
+    $("#pDel", box)?.addEventListener("click", async () => { if (confirm("Provision löschen?")) { await db.doc("provisionen/" + id).delete(); closeSheet(); } });
+    $("#pBezahlt", box)?.addEventListener("click", async () => { await speichern("provisionen/" + id, { status: "bezahlt", bezahltAm: $("#pBez", box).value || heute() }, "Als ausgezahlt markiert"); closeSheet(); });
+    $("#pOffen", box)?.addEventListener("click", async () => { if (p.buchung) await speichern("buchungen/" + p.buchung, { provision: null }); await speichern("provisionen/" + id, { status: "offen", bezahltAm: null, buchung: null }); closeSheet(); });
+  });
+}
+function gutschriftPapier(p) {
+  const a = p.absender || einst(), v = p.vertriebler_ || S.vertriebler.find((x) => x.id === p.vertriebler) || {};
+  return `<div class="paper" id="paper">
+    <div class="kopf"><div style="padding-top:2.6em"><span class="ab">${esc([a.firma, a.strasse, a.plzOrt].filter(Boolean).join(" · "))}</span><div>${esc(v.name || "")}<br>${esc(v.adresse || "").replace(/\n/g, "<br>")}</div></div>
+      <div class="meta"><div class="logo">${esc((a.firma || "crestra").split(/\s/)[0])}</div><div style="margin-top:1.4em">${a.inhaber ? `Inhaber ${esc(a.inhaber)}<br>` : ""}${esc(a.strasse || "")}<br>${esc(a.plzOrt || "")}<br>${esc(a.email || "")}</div></div></div>
+    <div class="meta" style="text-align:left;display:grid;grid-template-columns:auto 1fr;gap:.1em 1.4em;margin-bottom:1.6em">
+      <span>Gutschrift Nr.</span><b>${esc(p.nummer || "wird beim Erstellen vergeben")}</b>
+      <span>Datum</span><span>${fmtD(p.gutschriftDatum || heute())}</span>
+      <span>Leistungsdatum</span><span>${fmtD(p.datum)}</span>
+      <span>Steuernummer des Vertrieblers</span><span>${esc(v.steuernummer || "–")}</span>
+    </div>
+    <h2>Gutschrift</h2>
+    <div>Für die erfolgreiche Vermittlung des folgenden Auftrags schreiben wir Ihnen gut:</div>
+    <table><thead><tr><th style="width:2.2em">Pos.</th><th>Beschreibung</th><th class="r">Betrag</th></tr></thead><tbody>
+      <tr><td>1</td><td>Vermittlungsprovision: Vertragsabschluss mit ${esc(p.kunde?.name || "")} am ${fmtD(p.datum)}</td><td class="r">${eur(p.netto)}</td></tr>
+      ${provUst(p) ? `<tr><td></td><td>zzgl. 19 % Umsatzsteuer</td><td class="r">${eur(provUst(p))}</td></tr>` : ""}
+      <tr class="sum"><td></td><td>Auszahlungsbetrag</td><td class="r">${eur(provBrutto(p))}</td></tr></tbody></table>
+    ${provUst(p) ? "" : `<div class="hinweis">Der leistende Unternehmer ist Kleinunternehmer im Sinne von § 19 UStG; es wird keine Umsatzsteuer berechnet.</div>`}
+    <div class="hinweis">Der Betrag wird auf Ihr Konto ${v.iban ? `IBAN ${esc(v.iban)} ` : ""}überwiesen. Bitte prüfen Sie die Gutschrift; widersprechen Sie nicht innerhalb von 14 Tagen, gilt sie als anerkannt.</div>
+    <div class="hinweis">Mit freundlichen Grüßen<br>${esc(a.inhaber || a.firma || "")}</div>
+    <div class="fuss"><div>${esc(a.firma || "")}${a.inhaber ? `<br>Inh. ${esc(a.inhaber)}` : ""}<br>${esc(a.strasse || "")}<br>${esc(a.plzOrt || "")}</div><div>${esc(a.email || "")}${a.telefon ? `<br>${esc(a.telefon)}` : ""}${a.steuernummer ? `<br>St.-Nr. ${esc(a.steuernummer)}` : ""}</div><div>${esc(a.bankname || "Bankverbindung")}<br>IBAN ${esc(a.iban || "–")}</div></div>
+  </div>`;
+}
+function renderGutschrift(id) {
+  const view = $("#view"), p = S.provisionen.find((x) => x.id === id);
+  if (!p) { view.innerHTML = S.geladen.has("provisionen") ? `<p class="pad">Nicht gefunden. <a href="#vertrieb">Zum Vertrieb</a></p>` : `<p class="muted pad">Lädt …</p>`; return; }
+  const v = S.vertriebler.find((x) => x.id === p.vertriebler) || {};
+  const fehlt = [!v.adresse && "Anschrift des Vertrieblers", !v.steuernummer && "Steuernummer des Vertrieblers", !firmaKomplett() && "deine Firmendaten (Einstellungen)"].filter(Boolean);
+  view.innerHTML = `<div class="inv-wrap"><div class="no-print">
+    <a href="#vertrieb" class="small">← Vertrieb</a>
+    <h1 style="margin-top:8px">${p.nummer ? esc(p.nummer) : "Gutschrift"}</h1><p class="muted">${esc(v.name || "")} · ${esc(p.kunde?.name || "")} · ${eur(provBrutto(p))}</p>
+    <div class="card grid" style="gap:10px">
+      ${p.nummer ? `<div class="btns"><button class="btn btn--primary" data-act="drucken">Drucken / als PDF speichern</button>${v.email ? `<a class="btn" href="mailto:${encodeURIComponent(v.email)}?subject=${encodeURIComponent("Gutschrift " + p.nummer)}&body=${encodeURIComponent(`Hallo ${v.name},\n\nanbei die Gutschrift ${p.nummer} über deine Provision für ${p.kunde?.name || ""} (${eur(provBrutto(p))}).\n\nViele Grüße\n${einst().inhaber || ""}`)}">E-Mail vorbereiten</a>` : ""}</div>
+        <p class="small muted" style="margin:0">Gutschriften sind wie Rechnungen festgeschrieben. Stimmt etwas nicht, sprich mit dem Vertriebler und erstelle für die Korrektur eine neue Provision.</p>`
+      : `${fehlt.length ? `<div class="info warn">Für die Gutschrift fehlt noch: ${fehlt.join(", ")}. <button class="linkish" data-vertriebler="${esc(v.id || "")}">Vertriebler bearbeiten</button></div>` : ""}
+        <p style="margin:0">Mit einer Gutschrift rechnest du die Provision selbst ab, der Vertriebler muss dann keine Rechnung schreiben. Das muss mit ihm vereinbart sein (am besten im Vertriebsvertrag).</p>
+        <button class="btn btn--primary" data-act="gutschrift-fest" data-id="${esc(id)}" ${fehlt.length ? "disabled" : ""} style="justify-self:start">Gutschrift erstellen (${naechsteGutschrift(heute().slice(0, 4))})</button>`}
+    </div></div><div class="paper-wrap">${gutschriftPapier(p)}</div></div>`;
+}
+async function gutschriftFest(id) {
+  const p = S.provisionen.find((x) => x.id === id), v = S.vertriebler.find((x) => x.id === p.vertriebler) || {}, e = einst();
+  const nummer = naechsteGutschrift(heute().slice(0, 4));
+  if (!confirm(`Gutschrift ${nummer} erstellen? Danach ist sie festgeschrieben.`)) return;
+  await speichern("provisionen/" + id, { nummer, gutschriftDatum: heute(), absender: { firma: e.firma, inhaber: e.inhaber, strasse: e.strasse, plzOrt: e.plzOrt, email: e.email, telefon: e.telefon, steuernummer: e.steuernummer, iban: e.iban, bankname: e.bankname }, vertriebler_: { name: v.name, adresse: v.adresse, steuernummer: v.steuernummer, iban: v.iban } }, `Gutschrift ${nummer} erstellt`);
+}
+
 /* ================= Auswertung (EÜR) ================= */
 VIEWS.auswertung = () => {
   const jahre = [...new Set([new Date().getFullYear(), ...sichtbar().map((b) => +(b.datum || "").slice(0, 4)).filter(Boolean)])].sort((a, b) => b - a);
@@ -747,7 +894,7 @@ VIEWS.auswertung = () => {
   const zeilen = (t) => KAT.filter((k) => k.t === t && z.kat[k.id]).map((k) => `<tr><td>${esc(k.name)} <span class="muted small">(${z.kat[k.id].n})</span>${k.faktor ? `<div class="small muted">${eur(z.kat[k.id].brutto)} gezahlt, davon ${k.faktor * 100} % absetzbar</div>` : ""}</td><td class="r">${eur(z.kat[k.id].wert)}</td></tr>`).join("") || `<tr><td class="muted">keine</td><td></td></tr>`;
   return `<div class="head"><h1>Auswertung ${j}</h1><div class="btns no-print"><select class="in" id="jahr" style="width:auto">${jahre.map((y) => `<option${y === j ? " selected" : ""}>${y}</option>`).join("")}</select><button class="btn" data-act="export">CSV für Steuerberater</button><button class="btn" data-act="drucken">Drucken</button></div></div>
     ${ohne.length || fehlt.length ? `<div class="info warn no-print" style="margin-bottom:14px">${ohne.length ? `<a href="#umsaetze/ohne-kategorie">${ohne.length} Umsätze ohne Kategorie</a> fehlen noch in der Rechnung. ` : ""}${fehlt.length ? `<a href="#umsaetze/ohne-beleg">${fehlt.length} Ausgaben ohne Beleg</a>.` : ""}</div>` : ""}
-    <div class="grid g3" style="margin-bottom:14px"><div class="card stat"><span>Betriebseinnahmen</span><strong>${eur(z.e)}</strong></div><div class="card stat"><span>Betriebsausgaben</span><strong>${eur(z.a)}</strong></div><div class="card stat"><span>Gewinn</span><strong>${eur(z.e - z.a)}</strong></div></div>
+    <div class="grid g3 stats" style="margin-bottom:14px"><div class="card stat"><span>Betriebseinnahmen</span><strong>${eur(z.e)}</strong></div><div class="card stat"><span>Betriebsausgaben</span><strong>${eur(z.a)}</strong></div><div class="card stat"><span>Gewinn</span><strong>${eur(z.e - z.a)}</strong></div></div>
     <div class="card print-euer">
       <h2>Einnahmen-Überschuss-Rechnung ${j}</h2>
       <p class="small muted">${esc(einst().firma || "crestra")}${einst().inhaber ? ", Inhaber " + esc(einst().inhaber) : ""} · Kleinunternehmer nach § 19 UStG: alle Beträge brutto, keine Umsatzsteuer. Nach Zahlungsdatum (Zufluss/Abfluss).</p>
@@ -843,7 +990,7 @@ VIEWS.einstellungenMount = (v) => {
   });
   v.addEventListener("click", (ev) => { const x = ev.target.closest("[data-regel-weg]"); if (x) { const r = [...(einst().regeln || [])]; r.splice(+x.dataset.regelWeg, 1); speichern("buchhaltung/einstellungen", { regeln: r }, "Regel entfernt"); } });
 };
-VIEWS.mehr = () => `<h1>Mehr</h1><div class="todo"><a href="#auswertung"><span>Auswertung / EÜR</span><b>›</b></a><a href="#einstellungen"><span>Einstellungen, Bank, Firmendaten</span><b>›</b></a><a href="../crestra-board/"><span>Kundenboard</span><b>↗</b></a></div>`;
+VIEWS.mehr = () => `<h1>Mehr</h1><div class="todo"><a href="#vertrieb"><span>Vertrieb & Provisionen</span><b>›</b></a><a href="#auswertung"><span>Auswertung / EÜR</span><b>›</b></a><a href="#einstellungen"><span>Einstellungen, Bank, Firmendaten</span><b>›</b></a><a href="../crestra-board/"><span>Kundenboard</span><b>↗</b></a></div>`;
 async function bankVerbinden() {
   sheet(`<h2>Konto verbinden</h2><p class="muted">Lädt die Liste der Banken …</p>`);
   let d; try { d = await bankAufruf("banken"); } catch (e) { return sheet(`<h2>Konto verbinden</h2><div class="info bad">${esc(e.message)}</div>`); }
@@ -900,6 +1047,8 @@ document.addEventListener("click", async (e) => {
   if (ok) { e.stopPropagation(); return speichern("buchungen/" + ok.dataset.ok, { kategorie: ok.dataset.k }); }
   if (!act) {
     const bel = t.closest("[data-beleg]"); if (bel) return belegSheet(bel.dataset.beleg);
+    const ve = t.closest("[data-vertriebler]"); if (ve) return vertrieblerSheet(ve.dataset.vertriebler || undefined);
+    const pr = t.closest("[data-provision]"); if (pr) return provisionSheet(pr.dataset.provision);
     const bu = t.closest("[data-buchung]"); if (bu) return buchungSheet(bu.dataset.buchung);
     return;
   }
@@ -910,11 +1059,9 @@ document.addEventListener("click", async (e) => {
     case "abruf": return bankAbruf();
     case "beleg-hoch": belegZiel = act.dataset.buchungZiel || null; return $("#fileBeleg").click();
     case "neu-rechnung": { const nid = await neueRechnung(); location.hash = "#rechnung/" + nid; return; }
-    case "monatsrechnungen": {
-      act.disabled = true; const ym = heute().slice(0, 7), mk = monatsKunden(ym);
-      for (const s of mk) await neueRechnung(s, ym);
-      toast(`${mk.length} Entwürfe erstellt – bitte prüfen und festschreiben`, 4000); F.rFilter = "entwurf"; return render();
-    }
+    case "vertriebler-neu": return vertrieblerSheet();
+    case "provision-neu": return provisionSheet();
+    case "gutschrift-fest": return gutschriftFest(id);
     case "festschreiben": return festschreiben(id);
     case "entwurf-weg": if (confirm("Entwurf löschen?")) { ED = null; await db.doc("rechnungen/" + id).delete(); location.hash = "#rechnungen"; } return;
     case "drucken": return print();
@@ -922,7 +1069,6 @@ document.addEventListener("click", async (e) => {
     case "unbezahlt": { const r = S.rechnungen.find((x) => x.id === id); if (r.buchung) await speichern("buchungen/" + r.buchung, { rechnung: null }); return speichern("rechnungen/" + id, { status: "offen", bezahltAm: null, buchung: null }); }
     case "storno": return stornieren(id);
     case "kopie": { const r = S.rechnungen.find((x) => x.id === id); const nid = newId(); await db.doc("rechnungen/" + nid).set({ status: "entwurf", datum: heute(), zahlungsziel: r.zahlungsziel, kunde: r.kunde, positionen: r.positionen.map((p) => ({ ...p, preis: Math.abs(p.preis) })), einleitung: r.einleitung || "", leistungVon: heute(), erstellt: new Date().toISOString() }); location.hash = "#rechnung/" + nid; return; }
-    case "alle-vorschlaege": { const l = vorschlaege(); act.disabled = true; await Promise.all(l.map((b) => db.doc("buchungen/" + b.id).update({ kategorie: raten(b) }))); return toast(`${l.length} Kategorien übernommen`); }
     case "export": return exportCsv();
     case "bank-verbinden": return bankVerbinden();
     case "bank-trennen": if (confirm("Bankverbindung trennen? Bereits geladene Umsätze bleiben erhalten.")) { try { await bankAufruf("trennen"); toast("Getrennt"); } catch (er) { toast(er.message); } } return;
@@ -934,7 +1080,7 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("change", (e) => {
   const s = e.target.closest("[data-kat]");
-  if (s) { speichern("buchungen/" + s.dataset.kat, { kategorie: s.value || null }); s.blur(); }
+  if (s) { speichern("buchungen/" + s.dataset.kat, { kategorie: s.value || null, kategorieAuto: false, kategorieGeprueft: true }); s.blur(); }
 });
 $("#fileCsv").addEventListener("change", async (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) csvSheet(await csvLesen(f), f.name); });
 
@@ -944,10 +1090,10 @@ $("#fileCsv").addEventListener("change", async (e) => { const f = e.target.files
   db = await window.crestraDB(); SB = window.crestraSB;
   UID = (await SB.auth.getSession()).data.session?.user?.id;
   let erst = true;
-  const fertig = (name) => { S.geladen.add(name); if (S.geladen.size >= 5 && erst) { erst = false; nachStart(); } };
+  const fertig = (name) => { S.geladen.add(name); if (S.geladen.size >= 7 && erst) { erst = false; nachStart(); } };
   let rt; const neu = () => { clearTimeout(rt); rt = setTimeout(() => { if ($("#sheet").hidden) render(); abgleichen(); }, 40); };
   const liste = (col, key) => db.collection(col).onSnapshot((s) => { S[key] = s.docs.map((d) => ({ id: d.id, ...d.data() })); fertig(col); neu(); }, (e) => { console.error(e); fertig(col); });
-  liste("buchungen", "buchungen"); liste("rechnungen", "rechnungen"); liste("belege", "belege"); liste("sites", "sites");
+  liste("buchungen", "buchungen"); liste("rechnungen", "rechnungen"); liste("belege", "belege"); liste("sites", "sites"); liste("vertriebler", "vertriebler"); liste("provisionen", "provisionen");
   db.collection("buchhaltung").onSnapshot((s) => { const m = Object.fromEntries(s.docs.map((d) => [d.id, d.data()])); S.einst = m.einstellungen || {}; S.bank = m.bank || {}; fertig("buchhaltung"); neu(); }, () => fertig("buchhaltung"));
   render();
 })();

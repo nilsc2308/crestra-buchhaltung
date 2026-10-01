@@ -386,14 +386,19 @@ function csvParse(text) {
 const SPALTEN = {
   datum: /^(buchungs?(datum|tag)|booking ?date|settlement date|datum|date|transaction date|wertstellung|valuta(datum)?|value date|payment date|ausführungsdatum|completed date)/i,
   betrag: /^(betrag|amount|umsatz|total amount|amount \(eur\)|betrag \(eur\)|betrag in eur|summe)/i,
-  soll: /^(soll|ausgang|debit|lastschrift|belastung)/i,
-  haben: /^(haben|eingang|credit|gutschrift)/i,
-  gegenpartei: /^(empfänger|auftraggeber|name|partner ?name|counterparty|counterparty name|payee|zahlungsempfänger|beguenstigter|begünstigter|zahlungspflichtiger|gegenkonto ?name|name zahlungsbeteiligter|empfänger\/auftraggeber)/i,
+  soll: /^(soll|ausgang|ausgänge|auszahlung|paid out|money out|debit|lastschrift|belastung)/i,
+  haben: /^(haben|eingang|eingänge|einzahlung|paid in|money in|credit|gutschrift)/i,
+  gegenpartei: /^(transaction description|transaktionsbeschreibung|gegenpartei|zahlungspartner|empfänger|auftraggeber|name|partner ?name|counterparty|counterparty name|payee|zahlungsempfänger|beguenstigter|begünstigter|zahlungspflichtiger|gegenkonto ?name|name zahlungsbeteiligter|empfänger\/auftraggeber)/i,
   zweck: /^(verwendungszweck|payment reference|reference|referenz|description|beschreibung|buchungstext|purpose|zweck|details|notiz)/i,
 };
 function csvZuordnen(kopf) {
   const m = {};
   for (const [feld, re] of Object.entries(SPALTEN)) { const i = kopf.findIndex((h, j) => re.test(h.trim()) && !Object.values(m).includes(j)); if (i >= 0) m[feld] = i; }
+  // z. B. Tide: „Beschreibung“ ist der Name, „Referenz“ der Verwendungszweck
+  if (m.gegenpartei === undefined && m.zweck !== undefined) {
+    const r = kopf.findIndex((h, j) => j !== m.zweck && /^(referenz|reference|verwendungszweck)/i.test(h.trim()));
+    if (r >= 0) { m.gegenpartei = m.zweck; m.zweck = r; }
+  }
   return m;
 }
 function csvUmsaetze(rows, kopfZeile, m) {

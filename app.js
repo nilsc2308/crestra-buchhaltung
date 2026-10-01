@@ -197,6 +197,11 @@ function aufgaben() {
   if (ohneKat) out.push(["#umsaetze/ohne-kategorie", "Umsätze ohne Kategorie", ohneKat]);
   if (ohneBeleg) out.push(["#umsaetze/ohne-beleg", "Ausgaben ohne Beleg", ohneBeleg]);
   if (offeneBelege) out.push(["#belege", "Belege noch keinem Umsatz zugeordnet", offeneBelege]);
+  if (!S.bank.konten?.length) {
+    const letzter = S.buchungen.filter((x) => x.quelle === "csv").map((x) => x.erfasst || "").sort().pop();
+    const tage = letzter ? Math.floor((Date.now() - new Date(letzter)) / 864e5) : null;
+    if (tage === null || tage >= 30) out.unshift(["#einstellungen", tage === null ? "Tide-Umsätze zum ersten Mal importieren" : `Tide-Umsätze importieren (letzter Import vor ${tage} Tagen)`, "↓"]);
+  }
   if (S.bank.gueltigBis) { const t = Math.round((new Date(S.bank.gueltigBis) - Date.now()) / 864e5); if (t < 10) out.push(["#einstellungen", t < 0 ? "Bankfreigabe abgelaufen – neu verbinden" : `Bankfreigabe läuft in ${t} Tagen ab`, "!"]); }
   return out;
 }
@@ -758,12 +763,21 @@ VIEWS.einstellungen = () => {
   const tage = b.gueltigBis ? Math.round((new Date(b.gueltigBis) - Date.now()) / 864e5) : null;
   return `<h1>Einstellungen</h1>
   <section class="card" style="margin-bottom:14px" id="bank">
-    <h2>Geschäftskonto</h2>
+    <h2>Geschäftskonto (Tide)</h2>
     ${verbunden ? `<p><span class="badge green">verbunden</span> ${esc(b.bank)} · ${b.konten.map((k) => esc(k.iban || k.name)).join(", ")}</p>
       <p class="small muted">Letzter Abruf: ${b.letzterAbruf ? new Date(b.letzterAbruf).toLocaleString("de-DE") : "noch nie"}${tage !== null ? ` · Freigabe gültig bis ${fmtD(b.gueltigBis.slice(0, 10))} (${tage} Tage)` : ""}. Die Bank verlangt alle 90 Tage eine neue Freigabe.</p>
       <div class="btns"><button class="btn btn--primary" data-act="abruf">↻ Umsätze abrufen</button><button class="btn" data-act="bank-verbinden">Neu verbinden</button><button class="btn btn--danger" data-act="bank-trennen">Trennen</button></div>`
-    : `<p class="muted">Die App liest Umsätze und Kontostand direkt von deiner Bank (nur Lesezugriff über die EU-Kontoschnittstelle PSD2). Niemand kann darüber Geld bewegen.</p>
-      ${bankInfo && bankInfo.eingerichtet === false ? `<div class="info warn"><b>Noch ein einmaliger Schritt nötig:</b> Der Zugang zur Bankschnittstelle (Enable Banking, kostenlos für das eigene Konto) ist noch nicht eingerichtet. Die Anleitung steht in LIESMICH.md im Projektordner. Bis dahin: Umsätze als CSV aus dem Online-Banking exportieren und <button class="linkish" data-act="csv">hier importieren</button>.</div>` : `<div class="btns"><button class="btn btn--primary" data-act="bank-verbinden">Konto verbinden</button><button class="btn" data-act="csv">CSV importieren</button></div>`}`}
+    : `<p>Tide ist bei der automatischen Bankschnittstelle nicht verfügbar. Deshalb kommen die Umsätze per Datei – einmal im Monat, dauert eine Minute:</p>
+      <ol class="steps">
+        <li>Tide-App: <b>Zahlungen</b> → unter der Liste <b>Mehr anzeigen</b></li>
+        <li>Zeitraum filtern (z. B. seit dem letzten Import – doppelte werden übersprungen)</li>
+        <li>Oben rechts <b>Teilen-Symbol</b> → CSV-Art <b>„Standard“</b> → <b>Exportieren</b> → „In Dateien sichern“</li>
+        <li>Hier auf <b>CSV importieren</b> tippen und die Datei wählen</li>
+      </ol>
+      <p class="small muted">Am Mac: Tide im Browser → Konten → Trichter-Symbol neben dem Kontostand → Filter anwenden → Exportieren.</p>
+      <div class="btns"><button class="btn btn--primary" data-act="csv">CSV importieren</button></div>
+      <details style="margin-top:12px"><summary class="small muted">Andere Bank automatisch verbinden</summary><p class="muted">Die App liest Umsätze und Kontostand direkt von deiner Bank (nur Lesezugriff über die EU-Kontoschnittstelle PSD2). Niemand kann darüber Geld bewegen.</p>
+      ${bankInfo && bankInfo.eingerichtet === false ? `<div class="info warn"><b>Noch ein einmaliger Schritt nötig:</b> Der Zugang zur Bankschnittstelle (Enable Banking, kostenlos für das eigene Konto) ist noch nicht eingerichtet. Die Anleitung steht in LIESMICH.md im Projektordner. Bis dahin: Umsätze als CSV aus dem Online-Banking exportieren und <button class="linkish" data-act="csv">hier importieren</button>.</div>` : `<div class="btns"><button class="btn" data-act="bank-verbinden">Konto verbinden</button></div>`}</details>`}
   </section>
   <section class="card" style="margin-bottom:14px">
     <h2>Firmendaten für Rechnungen</h2>
@@ -794,7 +808,6 @@ VIEWS.einstellungen = () => {
   </section>`;
 };
 VIEWS.einstellungenMount = (v) => {
-  if (!bankInfo && !S.bank.konten?.length) bankAufruf("status").then((d) => { bankInfo = d; if (d.eingerichtet === false) render(); }, () => {});
   const t = {};
   v.addEventListener("input", (ev) => {
     const el = ev.target, k = el.dataset.e; if (!k) return;

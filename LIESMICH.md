@@ -19,7 +19,16 @@ Anmeldung: dieselbe wie im Kundenboard. Wer dort angemeldet ist, ist es hier aut
 
 Zahlungseingänge, deren Verwendungszweck die Rechnungsnummer enthält und deren Betrag passt, werden automatisch der Rechnung zugeordnet und die Rechnung als bezahlt markiert.
 
-## Bank automatisch verbinden (einmalig, ca. 10 Minuten)
+## Tide: Umsätze per CSV (Stand 1.10.2026)
+
+Nils' Geschäftskonto ist bei **Tide**. Tide (Konto bei der Partnerbank Adyen N.V.) wird von Enable Banking **nicht** angeboten,
+weder unter „Tide“ noch unter „Adyen“ (geprüft 1.10.2026). Deshalb kommen die Umsätze per CSV:
+Tide-App → Zahlungen → Mehr anzeigen → filtern → Teilen-Symbol → CSV-Art „Standard“ → Exportieren → in der App „CSV importieren“.
+Die App erinnert im Überblick, wenn der letzte Import 30 Tage oder länger her ist. Den Kontostand einmal unter
+Einstellungen → „Kontostand ohne Bankverbindung“ (Stichtag + Betrag) eintragen.
+Enable-Banking-App ist trotzdem registriert (ID 472e0d55-…, Schlüssel in `~/.config/crestra/enablebanking.pem`, Secrets in Supabase gesetzt), aber inaktiv – nützlich nur bei einem Bankwechsel.
+
+## Bank automatisch verbinden (für andere Banken, einmalig, ca. 10 Minuten)
 
 Die App liest Umsätze und Kontostand über **Enable Banking**, einen zugelassenen Kontoinformationsdienst
 (EU-Schnittstelle PSD2, nur Lesezugriff). Für das eigene Konto ist das kostenlos. Unterstützt werden u. a.

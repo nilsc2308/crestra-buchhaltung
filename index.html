@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>crestra Buchhaltung</title>
+<meta name="description" content="Einnahmen, Ausgaben, Rechnungen und Belege von crestra">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Buchhaltung">
+<meta name="theme-color" content="#eceef2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0f16" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="fonts/hanken-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+<div id="login" class="login" hidden>
+ <form id="loginForm" class="login__box" autocomplete="on">
+  <div class="brand"><b>crestra</b><span>Buchhaltung</span></div>
+  <p id="loginIntro">Melde dich mit deiner E-Mail und deinem Passwort an.</p>
+  <input id="loginEmail" type="email" autocomplete="username" placeholder="E-Mail" required>
+  <div class="pw"><input id="loginPass" type="password" autocomplete="current-password" placeholder="Passwort" required><button type="button" id="loginShow" aria-label="Passwort zeigen">👁</button></div>
+  <button id="loginSubmit" class="btn btn--primary" type="submit">Anmelden</button>
+  <button id="loginReset" class="linkish" type="button">Passwort festlegen oder vergessen?</button>
+  <p id="loginMsg" class="login__msg" role="alert"></p>
+ </form>
+</div>
+
+<header class="top">
+ <a class="brand" href="#uebersicht"><b>crestra</b><span>Buchhaltung</span></a>
+ <nav class="tabs" aria-label="Bereiche">
+  <a href="#uebersicht" data-tab="uebersicht">Überblick</a>
+  <a href="#umsaetze" data-tab="umsaetze">Umsätze</a>
+  <a href="#rechnungen" data-tab="rechnungen">Rechnungen</a>
+  <a href="#belege" data-tab="belege">Belege</a>
+  <a href="#auswertung" data-tab="auswertung">Auswertung</a>
+  <a href="#einstellungen" data-tab="einstellungen">Einstellungen</a>
+ </nav>
+ <a class="top__board" href="../crestra-board/" title="Zum Kundenboard">Board ↗</a>
+</header>
+
+<main id="view" class="view" aria-live="polite"><p class="muted pad">Lädt …</p></main>
+
+<nav class="bottom" aria-label="Bereiche">
+ <a href="#uebersicht" data-tab="uebersicht"><i>◎</i>Überblick</a>
+ <a href="#umsaetze" data-tab="umsaetze"><i>⇅</i>Umsätze</a>
+ <a href="#rechnungen" data-tab="rechnungen"><i>▤</i>Rechnungen</a>
+ <a href="#belege" data-tab="belege"><i>⎙</i>Belege</a>
+ <a href="#mehr" data-tab="mehr"><i>⋯</i>Mehr</a>
+</nav>
+
+<div id="sheet" class="sheet" hidden><div class="sheet__bg" data-close></div><div class="sheet__box" role="dialog" aria-modal="true"><button class="sheet__x" data-close aria-label="Schließen">×</button><div id="sheetBody"></div></div></div>
+<div id="toast" class="toast" role="status" hidden></div>
+<input id="fileBeleg" type="file" accept="image/*,application/pdf,.xml" multiple hidden>
+<input id="fileCsv" type="file" accept=".csv,text/csv,text/plain" hidden>
+
+<script type="module" src="db.js"></script>
+<script type="module" src="app.js?v=1"></script>
+<script>if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Bank verbunden</title><style>body{font:16px system-ui,sans-serif;background:#eceef2;color:#111725;display:grid;place-items:center;min-height:100vh;margin:0}@media (prefers-color-scheme:dark){body{background:#0c0f16;color:#eef1f6}}</style></head>
+<body><p>Zurück zur Buchhaltung …</p>
+<script>
+// Rückkehr von der Bank (Enable Banking): Code merken und zur App weiterleiten. Die App schließt die Verbindung dann ab.
+var p = new URLSearchParams(location.search);
+try {
+  if (p.get('code')) sessionStorage.setItem('eb_code', p.get('code'));
+  if (p.get('error')) sessionStorage.setItem('eb_fehler', p.get('error_description') || p.get('error'));
+} catch (e) {}
+location.replace('./#einstellungen');
+</script></body></html>

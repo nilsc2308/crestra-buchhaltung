@@ -1,6 +1,6 @@
 // Offline-Speicher für die App-Hülle. Daten (Supabase) und Belege werden nie zwischengespeichert.
-const CACHE = "buchhaltung-v4";
-const HUELLE = ["./", "index.html", "styles.css?v=2", "app.js?v=4", "db.js", "config.js", "manifest.webmanifest", "icons/icon.svg",
+const CACHE = "buchhaltung-v5";
+const HUELLE = ["./", "index.html", "styles.css?v=2", "app.js?v=5", "db.js", "config.js", "manifest.webmanifest", "icons/icon.svg",
   "fonts/bricolage-grotesque-latin-wght-normal.woff2", "fonts/hanken-grotesk-latin-wght-normal.woff2", "fonts/jetbrains-mono-latin-wght-normal.woff2"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(HUELLE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((k) => Promise.all(k.filter((x) => x !== CACHE).map((x) => caches.delete(x)))).then(() => self.clients.claim())); });

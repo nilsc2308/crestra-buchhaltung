@@ -24,7 +24,7 @@ Zahlungseingänge, deren Verwendungszweck die Rechnungsnummer enthält und deren
 Nils' Geschäftskonto ist bei **Tide**. Tide (Konto bei der Partnerbank Adyen N.V.) wird von Enable Banking **nicht** angeboten,
 weder unter „Tide“ noch unter „Adyen“ (geprüft 1.10.2026). Deshalb kommen die Umsätze per CSV:
 Tide-App → Zahlungen → Mehr anzeigen → filtern → Teilen-Symbol → CSV-Art „Standard“ → Exportieren → in der App „CSV importieren“.
-Die App erinnert im Überblick, wenn der letzte Import 30 Tage oder länger her ist. Den Kontostand einmal unter
+Die App erinnert im Überblick, wenn der letzte Import 7 Tage oder länger her ist. Den Kontostand einmal unter
 Einstellungen → „Kontostand ohne Bankverbindung“ (Stichtag + Betrag) eintragen.
 Enable-Banking-App ist trotzdem registriert (ID 472e0d55-…, Schlüssel in `~/.config/crestra/enablebanking.pem`, Secrets in Supabase gesetzt), aber inaktiv – nützlich nur bei einem Bankwechsel.
 

@@ -200,7 +200,7 @@ function aufgaben() {
   if (!S.bank.konten?.length) {
     const letzter = S.buchungen.filter((x) => x.quelle === "csv").map((x) => x.erfasst || "").sort().pop();
     const tage = letzter ? Math.floor((Date.now() - new Date(letzter)) / 864e5) : null;
-    if (tage === null || tage >= 30) out.unshift(["#einstellungen", tage === null ? "Tide-Umsätze zum ersten Mal importieren" : `Tide-Umsätze importieren (letzter Import vor ${tage} Tagen)`, "↓"]);
+    if (tage === null || tage >= 7) out.unshift(["#einstellungen", tage === null ? "Tide-Umsätze zum ersten Mal importieren" : `Tide-Umsätze importieren (letzter Import vor ${tage} Tagen)`, "↓"]);
   }
   if (S.bank.gueltigBis) { const t = Math.round((new Date(S.bank.gueltigBis) - Date.now()) / 864e5); if (t < 10) out.push(["#einstellungen", t < 0 ? "Bankfreigabe abgelaufen – neu verbinden" : `Bankfreigabe läuft in ${t} Tagen ab`, "!"]); }
   return out;
@@ -767,7 +767,7 @@ VIEWS.einstellungen = () => {
     ${verbunden ? `<p><span class="badge green">verbunden</span> ${esc(b.bank)} · ${b.konten.map((k) => esc(k.iban || k.name)).join(", ")}</p>
       <p class="small muted">Letzter Abruf: ${b.letzterAbruf ? new Date(b.letzterAbruf).toLocaleString("de-DE") : "noch nie"}${tage !== null ? ` · Freigabe gültig bis ${fmtD(b.gueltigBis.slice(0, 10))} (${tage} Tage)` : ""}. Die Bank verlangt alle 90 Tage eine neue Freigabe.</p>
       <div class="btns"><button class="btn btn--primary" data-act="abruf">↻ Umsätze abrufen</button><button class="btn" data-act="bank-verbinden">Neu verbinden</button><button class="btn btn--danger" data-act="bank-trennen">Trennen</button></div>`
-    : `<p>Tide ist bei der automatischen Bankschnittstelle nicht verfügbar. Deshalb kommen die Umsätze per Datei – einmal im Monat, dauert eine Minute:</p>
+    : `<p>Tide ist bei der automatischen Bankschnittstelle nicht verfügbar. Deshalb kommen die Umsätze per Datei – am besten einmal pro Woche, dauert eine Minute:</p>
       <ol class="steps">
         <li>Tide-App: <b>Zahlungen</b> → unter der Liste <b>Mehr anzeigen</b></li>
         <li>Zeitraum filtern (z. B. seit dem letzten Import – doppelte werden übersprungen)</li>

@@ -39,8 +39,12 @@ function parseDatum(v) {
   if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
   m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})/);
   if (m) { const y = m[3].length === 2 ? "20" + m[3] : m[3]; return `${y}-${pad(m[2])}-${pad(m[1])}`; }
+  // „1. Okt. 2026 11:21“, „24. Sept. 2026“, „3 Jul 2026“ (z. B. Tide)
+  m = s.match(/^(\d{1,2})\.?\s*([A-Za-zäÄ]+)\.?\s+(\d{4})/);
+  if (m) { const mon = MON_KURZ.findIndex((x) => x.test(m[2].toLowerCase())); if (mon >= 0) return `${m[3]}-${pad(mon + 1)}-${pad(m[1])}`; }
   return "";
 }
+const MON_KURZ = [/^jan/, /^feb/, /^(mär|mar|mrz)/, /^apr/, /^(mai|may)/, /^jun/, /^jul/, /^aug/, /^sep/, /^(okt|oct)/, /^nov/, /^(dez|dec)/];
 function fnv(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
 
 /* ================= Kategorien (EÜR für Kleinunternehmer) ================= */
@@ -97,7 +101,13 @@ function regel(b) {
 }
 const katVon = (b) => b.kategorie || regel(b) || "";
 function raten(b) {
-  if (b.betrag > 0) return rechnungZu(b) ? "umsatz" : "";
+  if (b.betrag > 0) {
+    if (rechnungZu(b)) return "umsatz";
+    const txt = norm(`${b.gegenpartei} ${b.zweck}`), ich = norm(einst().inhaber || "Nils Cremerius");
+    if (ich.length > 4 && norm(b.gegenpartei).includes(ich)) return "privatein";
+    if (S.sites.some((s) => { const w = norm(String(s.name || "").split(/\s+/)[0]); return w.length >= 4 && txt.includes(w); })) return "umsatz";
+    return "";
+  }
   const txt = `${b.gegenpartei || ""} ${b.zweck || ""}`;
   for (const [re, k] of RATEN) if (re.test(txt)) return k;
   return "";
@@ -259,7 +269,7 @@ function zeile(b) {
   const wahl = k || "";
   return `<div class="it" data-buchung="${esc(b.id)}">
     <div class="d">${fmtD(b.datum)}</div>
-    <div class="t"><b>${esc(b.gegenpartei || "(ohne Namen)")}</b><span><i class="dm">${fmtD(b.datum)} · </i>${esc(b.zweck || "")}${re ? ` · ${esc(re.nummer)}` : ""}${b.status === "vorgemerkt" ? " · vorgemerkt" : ""}${b.konto === "bar" ? " · bar" : b.konto === "privat" ? " · privat bezahlt" : ""}</span></div>
+    <div class="t"><b>${esc(b.gegenpartei || "(ohne Namen)")}</b><span><i class="dm">${fmtD(b.datum)}${b.zweck ? " · " : ""}</i>${esc(b.zweck || "")}${re ? ` · ${esc(re.nummer)}` : ""}${b.status === "vorgemerkt" ? " · vorgemerkt" : ""}${b.konto === "bar" ? " · bar" : b.konto === "privat" ? " · privat bezahlt" : ""}</span></div>
     <div class="m ${b.betrag > 0 ? "plus" : "minus"}">${b.betrag > 0 ? "+" : ""}${eur(b.betrag)}</div>
     <div class="x">
       <select class="in" data-kat="${esc(b.id)}" aria-label="Kategorie">${katOptions(wahl, b.betrag, r && !k ? `Vorschlag: ${KATM[r].name}` : "– Kategorie –")}</select>
@@ -268,6 +278,7 @@ function zeile(b) {
     </div>
   </div>`;
 }
+const vorschlaege = () => sichtbar().filter((b) => !katVon(b) && raten(b));
 VIEWS.umsaetze = () => {
   const [, arg] = teil(); if (arg) F.filter = arg;
   const q = F.suche.toLowerCase();
@@ -287,6 +298,7 @@ VIEWS.umsaetze = () => {
       ${S.bank.konten?.length ? `<button class="btn" data-act="abruf">↻ Bank abrufen</button>` : ""}
       <button class="btn" data-act="csv">CSV importieren</button>
       <button class="btn btn--primary" data-act="neu-buchung">+ Eintragen</button>
+      ${vorschlaege().length ? `<button class="btn" data-act="alle-vorschlaege">✓ Alle ${vorschlaege().length} Vorschläge übernehmen</button>` : ""}
     </div></div>
   <div class="toolbar">
     <input class="in" type="search" id="suche" placeholder="Suchen: Name, Zweck, Betrag …" value="${esc(F.suche)}">
@@ -394,6 +406,10 @@ const SPALTEN = {
   soll: /^(soll|ausgang|ausgänge|auszahlung|paid out|money out|debit|lastschrift|belastung)/i,
   haben: /^(haben|eingang|eingänge|einzahlung|paid in|money in|credit|gutschrift)/i,
   gegenpartei: /^(transaction description|transaktionsbeschreibung|gegenpartei|zahlungspartner|empfänger|auftraggeber|name|partner ?name|counterparty|counterparty name|payee|zahlungsempfänger|beguenstigter|begünstigter|zahlungspflichtiger|gegenkonto ?name|name zahlungsbeteiligter|empfänger\/auftraggeber)/i,
+  von: /^(von|from|absender)$/i,
+  an: /^(an|to)$/i,
+  status: /^(status)$/i,
+  beschreibung: /^(beschreibung|description)$/i,
   zweck: /^(verwendungszweck|payment reference|reference|referenz|description|beschreibung|buchungstext|purpose|zweck|details|notiz)/i,
 };
 function csvZuordnen(kopf) {
@@ -413,7 +429,10 @@ function csvUmsaetze(rows, kopfZeile, m) {
     let betrag = m.betrag !== undefined && m.betrag !== "" ? parseEuro(r[m.betrag]) : NaN;
     if (isNaN(betrag) && (m.soll !== undefined || m.haben !== undefined)) { const s = parseEuro(r[m.soll]), h = parseEuro(r[m.haben]); betrag = (isNaN(h) ? 0 : Math.abs(h)) - (isNaN(s) ? 0 : Math.abs(s)); }
     if (!datum || isNaN(betrag) || !betrag) continue;
-    out.push({ datum, betrag, gegenpartei: (r[m.gegenpartei] || "").trim(), zweck: (r[m.zweck] || "").replace(/\s+/g, " ").trim() });
+    if (m.status !== undefined && /abgesagt|abgelehnt|storniert|fehlgeschlagen|declined|failed|cancel/i.test(r[m.status] || "")) continue;
+    const gegen = (r[m.gegenpartei] || "").trim() || (betrag > 0 ? r[m.von] : r[m.an]) || r[m.von] || r[m.an] || r[m.beschreibung] || "";
+    const zweck = (r[m.zweck] || "").trim() || (r[m.beschreibung] !== gegen ? r[m.beschreibung] : "") || "";
+    out.push({ datum, betrag, gegenpartei: gegen.trim(), zweck: zweck.replace(/\s+/g, " ").trim() });
   }
   // Doppelte erkennen: gleiche Tage+Beträge, die es schon gibt (auch aus der Bank)
   const vorhanden = new Map(); for (const b of S.buchungen) { const k = b.datum + "|" + b.betrag; vorhanden.set(k, (vorhanden.get(k) || 0) + 1); }
@@ -444,7 +463,9 @@ function csvSheet(text, name) {
     $$("[data-feld]", box).forEach((s) => { s.value = m[s.dataset.feld] ?? ""; });
     let liste = [];
     const vor = () => {
-      m = {}; $$("[data-feld]", box).forEach((s) => { if (s.value !== "") m[s.dataset.feld] = +s.value; });
+      const auto = csvZuordnen(rows[kopf]); m = {};
+      ["von", "an", "status", "beschreibung"].forEach((k) => { if (auto[k] !== undefined) m[k] = auto[k]; });
+      $$("[data-feld]", box).forEach((s) => { if (s.value !== "") m[s.dataset.feld] = +s.value; });
       liste = m.datum !== undefined ? csvUmsaetze(rows, kopf, m) : [];
       const neu = liste.filter((u) => u.neu);
       $("#csvVor", box).innerHTML = liste.length
@@ -901,6 +922,7 @@ document.addEventListener("click", async (e) => {
     case "unbezahlt": { const r = S.rechnungen.find((x) => x.id === id); if (r.buchung) await speichern("buchungen/" + r.buchung, { rechnung: null }); return speichern("rechnungen/" + id, { status: "offen", bezahltAm: null, buchung: null }); }
     case "storno": return stornieren(id);
     case "kopie": { const r = S.rechnungen.find((x) => x.id === id); const nid = newId(); await db.doc("rechnungen/" + nid).set({ status: "entwurf", datum: heute(), zahlungsziel: r.zahlungsziel, kunde: r.kunde, positionen: r.positionen.map((p) => ({ ...p, preis: Math.abs(p.preis) })), einleitung: r.einleitung || "", leistungVon: heute(), erstellt: new Date().toISOString() }); location.hash = "#rechnung/" + nid; return; }
+    case "alle-vorschlaege": { const l = vorschlaege(); act.disabled = true; await Promise.all(l.map((b) => db.doc("buchungen/" + b.id).update({ kategorie: raten(b) }))); return toast(`${l.length} Kategorien übernommen`); }
     case "export": return exportCsv();
     case "bank-verbinden": return bankVerbinden();
     case "bank-trennen": if (confirm("Bankverbindung trennen? Bereits geladene Umsätze bleiben erhalten.")) { try { await bankAufruf("trennen"); toast("Getrennt"); } catch (er) { toast(er.message); } } return;
